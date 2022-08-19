@@ -1,0 +1,1124 @@
+Index: run_ssd_example.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/run_ssd_example.py b/run_ssd_example.py
+--- a/run_ssd_example.py	(revision b3c853b36fd402b6073635fd7f0183a3e2915c00)
++++ b/run_ssd_example.py	(revision 4e2d619043d6196c0350e473b82117dc36df9121)
+@@ -4,7 +4,9 @@
+ from vision.ssd.squeezenet_ssd_lite import create_squeezenet_ssd_lite, create_squeezenet_ssd_lite_predictor
+ from vision.ssd.mobilenet_v2_ssd_lite import create_mobilenetv2_ssd_lite, create_mobilenetv2_ssd_lite_predictor
+ from vision.ssd.mobilenetv3_ssd_lite import create_mobilenetv3_large_ssd_lite, create_mobilenetv3_small_ssd_lite
+-from vision.ssd.config import mobilenetv1_ssd_config, mobilenetv3_ssd_config_240, mobilenetv3_ssd_config_200, mobilenetv3_ssd_config_160
++from vision.ssd.config import mobilenetv1_ssd_config, mobilenetv3_ssd_config_600, mobilenetv3_ssd_config_540, \
++    mobilenetv3_ssd_config_480, mobilenetv3_ssd_config_400, mobilenetv3_ssd_config_360, mobilenetv3_ssd_config_240, \
++    mobilenetv3_ssd_config_200, mobilenetv3_ssd_config_160
+ from vision.utils.misc import Timer
+ import cv2
+ import sys
+@@ -19,11 +21,12 @@
+ parser.add_argument("--label_file", type=str, help="The label file path.")
+ parser.add_argument("--image", type=str, help="The image file path.")
+ parser.add_argument("--iou_threshold", type=float, default=0.5, help="The threshold of Intersection over Union.")
+-parser.add_argument('--image_size', default=300, type=int, choices=[300, 240, 200, 160],
++parser.add_argument('--image_size', default=300, type=int, choices=[600, 540, 480, 400, 360, 300, 240, 200, 160],
+                     help='Input Image size')
++parser.add_argument("--output_image", type=str, default="run_ssd_example_output.jpg",
++                    help="The output image file path.")
+ args = parser.parse_args()
+ 
+-
+ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+ 
+ net_type = args.net
+@@ -44,7 +47,17 @@
+ elif net_type == 'mb3-large-ssd-lite':
+     net = create_mobilenetv3_large_ssd_lite(len(class_names), is_test=True)
+ elif net_type == 'mb3-small-ssd-lite':
+-    if args.image_size == 240:
++    if args.image_size == 600:
++        config = mobilenetv3_ssd_config_600
++    elif args.image_size == 540:
++        config = mobilenetv3_ssd_config_540
++    elif args.image_size == 480:
++        config = mobilenetv3_ssd_config_480
++    elif args.image_size == 400:
++        config = mobilenetv3_ssd_config_400
++    elif args.image_size == 360:
++        config = mobilenetv3_ssd_config_360
++    elif args.image_size == 240:
+         config = mobilenetv3_ssd_config_240
+     elif args.image_size == 200:
+         config = mobilenetv3_ssd_config_200
+@@ -78,18 +91,35 @@
+ orig_image = cv2.imread(image_path)
+ image = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB)
+ boxes, labels, probs = predictor.predict(image, -1, args.iou_threshold)
++colors = [
++    (255, 255, 255),
++    (255, 0, 0),
++    (0, 0, 255),
++    (0, 255, 255)
++]
+ 
+ for i in range(boxes.size(0)):
+     box = boxes[i, :]
+-    cv2.rectangle(orig_image, (box[0], box[1]), (box[2], box[3]), (255, 255, 255), 10)
+-    #label = f"""{voc_dataset.class_names[labels[i]]}: {probs[i]:.2f}"""
++
++    if labels[i] >= len(colors):
++        color = colors[-1]
++    else:
++        color = colors[labels[i]]
++
++    cv2.rectangle(orig_image, (box[0], box[1]), (box[2], box[3]), color, 10)
++    # label = f"""{voc_dataset.class_names[labels[i]]}: {probs[i]:.2f}"""
+     label = f"{class_names[labels[i]]}: {probs[i]:.2f}"
+     cv2.putText(orig_image, label,
+                 (box[0] + 20, box[1] + 40),
+                 cv2.FONT_HERSHEY_SIMPLEX,
+                 2,  # font scale
+-                (255, 255, 255),
++                color,
+                 8)  # line type
+-path = "run_ssd_example_output.jpg"
++
++if args.output_image:
++    path = args.output_image
++else:
++    path = "run_ssd_example_output.jpg"
++
+ cv2.imwrite(path, orig_image)
+ print(f"Found {len(probs)} objects. The output image is {path}")
+Index: train_ssd.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/train_ssd.py b/train_ssd.py
+--- a/train_ssd.py	(revision b3c853b36fd402b6073635fd7f0183a3e2915c00)
++++ b/train_ssd.py	(revision 4e2d619043d6196c0350e473b82117dc36df9121)
+@@ -20,7 +20,9 @@
+ from vision.datasets.open_images import OpenImagesDataset
+ from vision.nn.multibox_loss import MultiboxLoss
+ from vision.ssd.config import vgg_ssd_config
+-from vision.ssd.config import mobilenetv1_ssd_config, mobilenetv3_ssd_config_240, mobilenetv3_ssd_config_200, mobilenetv3_ssd_config_160
++from vision.ssd.config import mobilenetv1_ssd_config, mobilenetv3_ssd_config_600, mobilenetv3_ssd_config_540, \
++    mobilenetv3_ssd_config_480, mobilenetv3_ssd_config_400, mobilenetv3_ssd_config_360, mobilenetv3_ssd_config_240, \
++    mobilenetv3_ssd_config_200, mobilenetv3_ssd_config_160
+ from vision.ssd.config import squeezenet_ssd_config
+ from vision.ssd.data_preprocessing import TrainAugmentation, TestTransform
+ from torch.utils.tensorboard import SummaryWriter
+@@ -48,7 +50,6 @@
+ parser.add_argument('--balance_data', action='store_true',
+                     help="Balance training data by down-sampling more frequent labels.")
+ 
+-
+ parser.add_argument('--net', default="vgg16-ssd",
+                     help="The network architecture, it can be mb1-ssd, mb1-lite-ssd, mb2-ssd-lite, mb3-large-ssd-lite, mb3-small-ssd-lite or vgg16-ssd.")
+ parser.add_argument('--freeze_base_net', action='store_true',
+@@ -73,13 +74,14 @@
+ parser.add_argument('--extra_layers_lr', default=None, type=float,
+                     help='initial learning rate for the layers not in base net and prediction heads.')
+ 
+-
+ # Params for loading pretrained basenet or checkpoints.
+ parser.add_argument('--base_net',
+                     help='Pretrained base model')
+ parser.add_argument('--pretrained_ssd', help='Pre-trained base model')
+ parser.add_argument('--resume', default=None, type=str,
+                     help='Checkpoint state_dict file to resume training from')
++parser.add_argument('--resume_all', default=None, type=str,
++                    help="Checkpoint state_dict file to resume training from(include epoch, optimizer and scheduler")
+ 
+ # Scheduler
+ parser.add_argument('--scheduler', default="multi-step", type=str,
+@@ -106,7 +108,7 @@
+                     help='Set the debug log output frequency.')
+ parser.add_argument('--use_cuda', default=True, type=str2bool,
+                     help='Use CUDA to train model')
+-parser.add_argument('--image_size', default=300, type=int, choices=[300, 240, 200, 160],
++parser.add_argument('--image_size', default=300, type=int, choices=[600, 540, 480, 400, 360, 300, 240, 200, 160],
+                     help='Input Image size')
+ parser.add_argument('--lossfunc', default='l1loss', type=str, choices=['l1loss', 'iou', 'giou', 'diou', 'ciou'],
+                     help='Input Image size')
+@@ -114,7 +116,6 @@
+ parser.add_argument('--checkpoint_folder', default='models/',
+                     help='Directory for saving checkpoint models')
+ 
+-
+ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
+                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ args = parser.parse_args()
+@@ -124,12 +125,15 @@
+     torch.backends.cudnn.benchmark = True
+     logging.info("Use Cuda.")
+ 
++
+ def is_parallel(model):
+     return type(model) in (torch.nn.parallel.DataParallel, torch.nn.parallel.DistributedDataParallel)
+ 
++
+ def de_parallel(model):
+     return model.module if is_parallel(model) else model
+ 
++
+ def group_annotation_by_class(dataset):
+     true_case_stat = {}
+     all_gt_boxes = {}
+@@ -150,7 +154,7 @@
+                 all_gt_boxes[class_index][image_id] = []
+             all_gt_boxes[class_index][image_id].append(gt_box)
+             if class_index not in all_difficult_cases:
+-                all_difficult_cases[class_index]={}
++                all_difficult_cases[class_index] = {}
+             if image_id not in all_difficult_cases[class_index]:
+                 all_difficult_cases[class_index][image_id] = []
+             all_difficult_cases[class_index][image_id].append(difficult)
+@@ -163,6 +167,7 @@
+             all_gt_boxes[class_index][image_id] = torch.tensor(all_gt_boxes[class_index][image_id])
+     return true_case_stat, all_gt_boxes, all_difficult_cases
+ 
++
+ def compute_average_precision_per_class(num_true_cases, gt_boxes, difficult_cases,
+                                         prediction_file, iou_threshold, use_2007_metric):
+     with open(prediction_file) as f:
+@@ -212,6 +217,7 @@
+     else:
+         return measurements.compute_average_precision(precision, recall)
+ 
++
+ def train(loader, net, criterion, optimizer, device, epoch=-1, tb_writer=None):
+     net.train(True)
+     running_loss = 0.0
+@@ -225,7 +231,7 @@
+         boxes = boxes.to(device)
+         labels = labels.to(device)
+ 
+-#        print('train box: ', boxes)
++        #        print('train box: ', boxes)
+         optimizer.zero_grad()
+         confidence, locations = net(images)
+         regression_loss, classification_loss = criterion(confidence, locations, labels, boxes)  # TODO CHANGE BOXES
+@@ -253,7 +259,7 @@
+     if num == 0:
+         return float('nan'), float('nan'), float('nan')
+     else:
+-       return running_loss / num, running_regression_loss / num, running_classification_loss / num
++        return running_loss / num, running_regression_loss / num, running_classification_loss / num
+ 
+ 
+ def test(loader, net, criterion, device):
+@@ -292,6 +298,7 @@
+     else:
+         return running_loss / num, running_regression_loss / num, running_classification_loss / num
+ 
++
+ def eval(args, net_state_dict, device, iou_threshold, label_file, targetPath, config):
+     class_names = [name.strip() for name in open(label_file).readlines()]
+ 
+@@ -328,7 +335,7 @@
+     elif args.net == 'mb1-ssd-lite':
+         predictor = create_mobilenetv1_ssd_lite_predictor(net, nms_method='hard', device=DEVICE)
+     elif args.net == 'sq-ssd-lite':
+-        predictor = create_squeezenet_ssd_lite_predictor(net,nms_method='hard', device=DEVICE)
++        predictor = create_squeezenet_ssd_lite_predictor(net, nms_method='hard', device=DEVICE)
+     elif args.net == 'mb2-ssd-lite' or args.net == "mb3-large-ssd-lite" or args.net == "mb3-small-ssd-lite":
+         predictor = create_mobilenetv2_ssd_lite_predictor(net, nms_method='hard', device=DEVICE, config=config)
+     else:
+@@ -377,10 +384,11 @@
+         )
+         aps.append(ap)
+ 
+-#    print(f"\nAverage Precision Across All Classes:{sum(aps)/len(aps)}")
++    #    print(f"\nAverage Precision Across All Classes:{sum(aps)/len(aps)}")
+ 
+     return class_names, aps
+ 
++
+ def cal_boxdiff(args, net_state_dict, DEVICE, iou_threshold, label_file, config):
+     class_names = [name.strip() for name in open(label_file).readlines()]
+ 
+@@ -415,109 +423,84 @@
+     elif args.net == 'mb1-ssd-lite':
+         predictor = create_mobilenetv1_ssd_lite_predictor(net, nms_method='hard', device=DEVICE, candidate_size=200)
+     elif args.net == 'sq-ssd-lite':
+-        predictor = create_squeezenet_ssd_lite_predictor(net,nms_method='hard', device=DEVICE, candidate_size=200)
++        predictor = create_squeezenet_ssd_lite_predictor(net, nms_method='hard', device=DEVICE, candidate_size=200)
+     elif args.net == 'mb2-ssd-lite' or args.net == "mb3-large-ssd-lite" or args.net == "mb3-small-ssd-lite":
+-        predictor = create_mobilenetv2_ssd_lite_predictor(net, nms_method='hard', device=DEVICE, candidate_size=200, config=config)
++        predictor = create_mobilenetv2_ssd_lite_predictor(net, nms_method='hard', device=DEVICE, candidate_size=200,
++                                                          config=config)
+     else:
+         logging.fatal("The net type is wrong. It should be one of vgg16-ssd, mb1-ssd and mb1-ssd-lite.")
+         parser.print_help(sys.stderr)
+         sys.exit(1)
+ 
+-    totalsum = 0
+-    totalsumtarget = 0
+-    totalsumtext = 0
+-
+-    totalcnt = 0
+-    totaltargetcnt = 0
+-    totaltextcnt = 0
+-
+-    matchcnt = 0
+-    matchtargetcnt = 0
+-    matchtextcnt = 0
++    class_num = len(class_names) - 1
++    total_sum = 0
++    total_sum_target = [0] * class_num
++    total_cnt = 0
++    total_target_cnt = [0] * class_num
++    match_cnt = 0
++    match_target_cnt = [0] * class_num
+ 
+     facnt = 0
+ 
+-    try:
+-        for i in range(len(dataset)):
+-            image = dataset.get_image(i)
+-            a, gtbox, gtlabel = dataset.__getitem__(i)
++    for i in range(len(dataset)):
++        image = dataset.get_image(i)
++        a, gt_box, gt_label = dataset.__getitem__(i)
+ 
+-            currcnt = gtbox.shape[0]
+-            currtargetcnt = np.count_nonzero(gtlabel==1)
+-            currtextcnt = np.count_nonzero(gtlabel==2)
+-            totalcnt = totalcnt + gtbox.shape[0]
+-            totaltargetcnt = totaltargetcnt + currtargetcnt
+-            totaltextcnt = totaltextcnt + currtextcnt
++        for j in range(class_num):
++            total_target_cnt[j] += np.count_nonzero(gt_label == j + 1)
++        total_cnt = total_cnt + gt_box.shape[0]
+ 
+-            gtboxes = torch.tensor(gtbox)
+-            boxes, labels, probs = predictor.predict(image, 20, iou_threshold)
+-            sum = 0
+-            sumtarget = 0
+-            sumtext = 0
+-            targetcnt = 0
+-            textcnt = 0
+-
+-            predcnt = list(boxes.size())[0]
+-            currmatchcnt = 0
+-            currmatchtargetcnt = 0
+-            currmatchtextcnt = 0
++        gt_boxes = torch.tensor(gt_box)
++        boxes, labels, probs = predictor.predict(image, 30, iou_threshold)
++        sum = 0
++        sum_target = [0] * class_num
++        target_cnt = [0] * class_num
++        cur_match_cnt = 0
++        cur_match_target_cnt = [0] * class_num
+ 
+-            currfacnt = 0
+-
+-            for j in range(gtboxes.size(0)):
+-                iou = box_utils.iou_of(gtboxes[j], boxes)
+-                maxval = torch.max(iou)
+-                xor = 1 - maxval
+-                sum = sum + xor
++        if boxes.shape[0] == 0:
++            continue
++        for j in range(gt_boxes.size(0)):
++            iou = box_utils.iou_of(gt_boxes[j], boxes)
++            maxval = torch.max(iou)
++            xor = 1 - maxval
++            sum += xor
+ 
+-                if gtlabel[j] == 1:
+-                    sumtarget = sumtarget + xor
+-                    targetcnt = targetcnt + 1
+-                elif gtlabel[j] == 2:
+-                    sumtext = sumtext + xor
+-                    textcnt = textcnt + 1
++            cur_class = gt_label[j] - 1
++            if cur_class >= 0:
++                sum_target[cur_class] += xor
++                target_cnt[cur_class] += 1
+ 
+-                if maxval > iou_threshold:
+-                    currmatchcnt = currmatchcnt + 1
++            if maxval > iou_threshold:
++                cur_match_cnt += 1
+ 
+-                    if gtlabel[j] == 1:
+-                        currmatchtargetcnt = currmatchtargetcnt + 1
+-                    elif gtlabel[j] == 2:
+-                        currmatchtextcnt = currmatchtextcnt + 1
++                if cur_class >= 0:
++                    cur_match_target_cnt[cur_class] += 1
+ 
+-            totalsum = totalsum + sum / gtboxes.size(0)
+-            totalsumtarget = totalsumtarget + sumtarget / targetcnt
+-            totalsumtext = totalsumtext + sumtext / textcnt
++        total_sum += sum / gt_boxes.size(0)
++        for j in range(class_num):
++            if target_cnt[j] > 0:
++                total_sum_target[j] += sum_target[j] / target_cnt[j]
+ 
+-            matchcnt = matchcnt + currmatchcnt
+-            matchtargetcnt = matchtargetcnt + currmatchtargetcnt
+-            matchtextcnt = matchtextcnt + currmatchtextcnt
++        match_cnt += cur_match_cnt
++        for j in range(class_num):
++            match_target_cnt[j] += cur_match_target_cnt[j]
+ 
+-            facheck = list(probs > iou_threshold).count(True) - gtboxes.size(0)
++        facheck = list(probs > iou_threshold).count(True) - gt_boxes.size(0)
+ 
+-            if facheck > 0:
+-                facnt = facnt + facheck
++        if facheck > 0:
++            facnt = facnt + facheck
+ 
+-        retavr = (totalsum/len(dataset)).item()
+-        retavrtarget = (totalsumtarget/len(dataset)).item()
+-        retavrtext = (totalsumtext/len(dataset)).item()
+-
+-        rettotalap = matchcnt/totalcnt
+-        rettotaltargetap = matchtargetcnt/totaltargetcnt
+-        rettotaltextap = matchtextcnt/totaltextcnt
+-        retfacnt = facnt
++    if not isinstance(total_sum, torch.Tensor):
++        return 1.0, [1.0] * class_num, 0, [0] * class_num, 0
++    ret_avr = (total_sum / len(dataset)).item()
++    ret_avr_target = [(t / len(dataset)).item() if isinstance(t, torch.Tensor) else 1.0 for t in total_sum_target]
++    ret_total_ap = match_cnt / total_cnt
++    ret_total_target_ap = [t1 / t2 for t1, t2 in zip(match_target_cnt, total_target_cnt)]
++    ret_facnt = facnt
+ 
+-    except:
+-        retavr = 1.0
+-        retavrtarget = 1.0
+-        retavrtext = 1.0
++    return ret_avr, ret_avr_target, ret_total_ap, ret_total_target_ap, ret_facnt
+ 
+-        rettotalap = 0
+-        rettotaltargetap = 0
+-        rettotaltextap = 0
+-        retfacnt = 0
+-
+-    return retavr, retavrtarget, retavrtext, rettotalap, rettotaltargetap, rettotaltextap, retfacnt
+ 
+ if __name__ == '__main__':
+     timer = Timer()
+@@ -550,7 +533,17 @@
+         create_net = lambda num: create_mobilenetv3_large_ssd_lite(num)
+         config = mobilenetv1_ssd_config
+     elif args.net == 'mb3-small-ssd-lite':
+-        if args.image_size == 240:
++        if args.image_size == 600:
++            config = mobilenetv3_ssd_config_600
++        elif args.image_size == 540:
++            config = mobilenetv3_ssd_config_540
++        elif args.image_size == 480:
++            config = mobilenetv3_ssd_config_480
++        elif args.image_size == 400:
++            config = mobilenetv3_ssd_config_400
++        elif args.image_size == 360:
++            config = mobilenetv3_ssd_config_360
++        elif args.image_size == 240:
+             config = mobilenetv3_ssd_config_240
+         elif args.image_size == 200:
+             config = mobilenetv3_ssd_config_200
+@@ -571,9 +564,9 @@
+ 
+     test_transform = TestTransform(config.image_size, config.image_mean, config.image_std)
+ 
+-    #train_transform = None
+-    #target_transform = None
+-    #test_transform = None
++    # train_transform = None
++    # target_transform = None
++    # test_transform = None
+ 
+     logging.info("Prepare training datasets.")
+     if args.dataset_type == 'voc':
+@@ -584,8 +577,8 @@
+         num_classes = len(dataset.class_names)
+     elif args.dataset_type == 'open_images':
+         dataset = OpenImagesDataset(args.datasets,
+-             transform=train_transform, target_transform=target_transform,
+-             dataset_type="train", balance_data=args.balance_data)
++                                    transform=train_transform, target_transform=target_transform,
++                                    dataset_type="train", balance_data=args.balance_data)
+         label_file = os.path.join(args.checkpoint_folder, "open-images-model-labels.txt")
+         store_labels(label_file, dataset.class_names)
+         logging.info(dataset)
+@@ -595,7 +588,7 @@
+         raise ValueError(f"Dataset type {args.dataset_type} is not supported.")
+ 
+     logging.info(f"Stored labels into file {label_file}.")
+-#    train_dataset = ConcatDataset(datasets)
++    #    train_dataset = ConcatDataset(datasets)
+     logging.info("Train dataset size: {}".format(len(dataset)))
+     train_loader = DataLoader(dataset, args.batch_size,
+                               num_workers=args.num_workers,
+@@ -660,6 +653,9 @@
+     if args.resume:
+         logging.info(f"Resume from the model {args.resume}")
+         net.load(args.resume)
++    elif args.resume_all:
++        logging.info(f"Resume from the model {args.resume_all}")
++        net.load(args.resume_all)
+     elif args.base_net:
+         logging.info(f"Init from base net {args.base_net}")
+         net.init_from_base_net(args.base_net)
+@@ -673,8 +669,8 @@
+     logging.info(f"Init Loss Function: {args.lossfunc}")
+     criterion = MultiboxLoss(config.priors, iou_threshold=0.5, neg_pos_ratio=3,
+                              center_variance=0.1, size_variance=0.2, device=DEVICE, losstype=args.lossfunc)
+-#    optimizer = torch.optim.SGD(params, lr=args.lr, momentum=args.momentum,
+-#                                weight_decay=args.weight_decay)
++    #    optimizer = torch.optim.SGD(params, lr=args.lr, momentum=args.momentum,
++    #                                weight_decay=args.weight_decay)
+     optimizer = RAdam(params, lr=args.lr, betas=(0.9, 0.999), weight_decay=1e-4)
+     logging.info(f"Learning rate: {args.lr}, Base net learning rate: {base_net_lr}, "
+                  + f"Extra Layers learning rate: {extra_layers_lr}.")
+@@ -687,7 +683,7 @@
+         logging.info("Uses MultiStepLR scheduler.")
+         milestones = [int(v.strip()) for v in args.milestones.split(",")]
+         scheduler = MultiStepLR(optimizer, milestones=milestones,
+-                                                     gamma=0.1, last_epoch=last_epoch)
++                                gamma=0.1, last_epoch=last_epoch)
+     elif args.scheduler == 'cosine':
+         logging.info("Uses CosineAnnealingLR scheduler.")
+         scheduler = CosineAnnealingLR(optimizer, args.t_max, last_epoch=last_epoch)
+@@ -696,9 +692,15 @@
+         parser.print_help(sys.stderr)
+         sys.exit(1)
+ 
+-#    if args.pretrained_ssd:
+-#        loadnet = torch.load(args.pretrained_ssd)
+-#        scheduler.load_state_dict(loadnet['scheduler_state_dict'])
++    if args.resume_all:
++        loadnet = torch.load(args.resume_all)
++        optimizer.load_state_dict(loadnet['optimizer_state_dict'])
++        scheduler.load_state_dict(loadnet['scheduler_state_dict'])
++        last_epoch = loadnet['epoch']
++
++    #    if args.pretrained_ssd:
++    #        loadnet = torch.load(args.pretrained_ssd)
++    #        scheduler.load_state_dict(loadnet['scheduler_state_dict'])
+ 
+     loglen = 0
+     try:
+@@ -718,7 +720,8 @@
+     logging.info(f"Start training from epoch {last_epoch + 1}.")
+     for epoch in range(last_epoch + 1, args.num_epochs):
+         train_loss, train_regression_loss, train_classification_loss = train(train_loader, net, criterion, optimizer,
+-              device=DEVICE, epoch=epoch, tb_writer=tb_writer)
++                                                                             device=DEVICE, epoch=epoch,
++                                                                             tb_writer=tb_writer)
+         logging.info(
+             f"Epoch: {epoch}, " +
+             f"Train Loss: {train_loss:.4f}, " +
+@@ -747,25 +750,27 @@
+ 
+         cname, cap = eval(args, net.state_dict(), DEVICE, 0.5, label_file, targetPath, config)
+         logging.info(
+-            f"map: {sum(cap)/len(cap):.4f}, " +
+-            f"{cname[1]}: {cap[0]:.4f}, " +
+-            f"{cname[2]}: {cap[1]:.4f}"
++            f"map: {sum(cap) / len(cap):.4f}, " +
++            "".join([f"{cname[i]}: {cap[i - 1]:.4f}, " for i in range(1, num_classes)])
+         )
+ 
+-        totalavr, totalavrtarget, totalavrtext, totalap, totaltargetap, totaltextap, facnt = cal_boxdiff(args, net.state_dict(), DEVICE, 0.5, label_file, config)
++        total_avr, total_avr_target, total_ap, total_target_ap, facnt = cal_boxdiff(args,
++                                                                                    net.state_dict(),
++                                                                                    DEVICE, 0.5,
++                                                                                    label_file,
++                                                                                    config)
++        class_names = dataset.class_names
+         logging.info(
+-            f"totalavr: {totalavr}, " +
+-            f"totalavrtarget: {totalavrtarget}, " +
+-            f"totalavrtext: {totalavrtext}, " +
+-            f"totalap: {totalap}, " +
+-            f"totaltargetap: {totaltargetap}, " +
+-            f"totaltextap: {totaltextap}, " +
++            f"totalavr: {total_avr}, " +
++            "".join([f"totalavr_{class_names[i]}: {total_avr_target[i - 1]}, " for i in range(1, num_classes)]) +
++            f"totalap: {total_ap}, " +
++            "".join([f"totalap_{class_names[i]}: {total_target_ap[i - 1]}, " for i in range(1, num_classes)]) +
+             f"facnt: {facnt}"
+         )
+ 
+         model_path = targetPath + '/' + args.net + '-' + last
+ 
+-        #torch.save(net.state_dict(), model_path)
++        # torch.save(net.state_dict(), model_path)
+         torch.save({
+             'epoch': epoch,
+             'model_state_dict': net.state_dict(),
+@@ -773,71 +778,71 @@
+             'scheduler_state_dict': scheduler.state_dict(),
+             'val_regression_loss': val_regression_loss,
+             'val_classification_loss': val_classification_loss
+-            }, model_path)
++        }, model_path)
+ 
+         if best_loss > val_loss:
+-          best_loss = val_loss
++            best_loss = val_loss
+ 
+-        if best_iou > totalavr:
+-          best_iou = totalavr
++        if best_iou > total_avr:
++            best_iou = total_avr
+ 
+-        cur_ap = sum(cap)/len(cap)
++        cur_ap = sum(cap) / len(cap)
+         if best_ap < cur_ap:
+-          best_ap = cur_ap
++            best_ap = cur_ap
+ 
+         if best_loss == val_loss:
+-          model_path = targetPath + '/' + args.net + "-" + best
+-          #torch.save(net.state_dict(), model_path)
+-          torch.save({
+-              'epoch': epoch,
+-              'model_state_dict': net.state_dict(),
+-              'optimizer_state_dict': optimizer.state_dict(),
+-              'scheduler_state_dict': scheduler.state_dict(),
+-              'val_regression_loss': val_regression_loss,
+-              'val_classification_loss': val_classification_loss
+-              }, model_path)
+-          logging.info(f"Saved model {model_path}")
++            model_path = targetPath + '/' + args.net + "-" + best
++            # torch.save(net.state_dict(), model_path)
++            torch.save({
++                'epoch': epoch,
++                'model_state_dict': net.state_dict(),
++                'optimizer_state_dict': optimizer.state_dict(),
++                'scheduler_state_dict': scheduler.state_dict(),
++                'val_regression_loss': val_regression_loss,
++                'val_classification_loss': val_classification_loss
++            }, model_path)
++            logging.info(f"Saved model {model_path}")
+ 
+-        if best_iou == totalavr:
+-          model_path = targetPath + '/' + args.net + "-" + bestiou
+-          #torch.save(net.state_dict(), model_path)
+-          torch.save({
+-              'epoch': epoch,
+-              'model_state_dict': net.state_dict(),
+-              'optimizer_state_dict': optimizer.state_dict(),
+-              'scheduler_state_dict': scheduler.state_dict(),
+-              'val_regression_loss': val_regression_loss,
+-              'val_classification_loss': val_classification_loss
+-              }, model_path)
+-          logging.info(f"Saved model {model_path}")
++        if best_iou == total_avr:
++            model_path = targetPath + '/' + args.net + "-" + bestiou
++            # torch.save(net.state_dict(), model_path)
++            torch.save({
++                'epoch': epoch,
++                'model_state_dict': net.state_dict(),
++                'optimizer_state_dict': optimizer.state_dict(),
++                'scheduler_state_dict': scheduler.state_dict(),
++                'val_regression_loss': val_regression_loss,
++                'val_classification_loss': val_classification_loss
++            }, model_path)
++            logging.info(f"Saved model {model_path}")
+ 
+         if best_ap == cur_ap:
+-          model_path = targetPath + '/' + args.net + "-" + bestap
+-          #torch.save(net.state_dict(), model_path)
+-          torch.save({
+-              'epoch': epoch,
+-              'model_state_dict': net.state_dict(),
+-              'optimizer_state_dict': optimizer.state_dict(),
+-              'scheduler_state_dict': scheduler.state_dict(),
+-              'val_regression_loss': val_regression_loss,
+-              'val_classification_loss': val_classification_loss
+-              }, model_path)
+-          logging.info(f"Saved model {model_path}")
++            model_path = targetPath + '/' + args.net + "-" + bestap
++            # torch.save(net.state_dict(), model_path)
++            torch.save({
++                'epoch': epoch,
++                'model_state_dict': net.state_dict(),
++                'optimizer_state_dict': optimizer.state_dict(),
++                'scheduler_state_dict': scheduler.state_dict(),
++                'val_regression_loss': val_regression_loss,
++                'val_classification_loss': val_classification_loss
++            }, model_path)
++            logging.info(f"Saved model {model_path}")
+ 
+         if tb_writer:
+-          tb_writer.add_scalar('train/loss', train_loss, epoch)
+-          tb_writer.add_scalar('train/regression_loss', train_regression_loss, epoch)
+-          tb_writer.add_scalar('train/classification_loss', train_classification_loss, epoch)
+-          tb_writer.add_scalar('val/loss', val_loss, epoch)
+-          tb_writer.add_scalar('val/regression_loss', val_regression_loss, epoch)
+-          tb_writer.add_scalar('val/classification_loss', val_classification_loss, epoch)
+-          tb_writer.add_scalar('val/map', sum(cap)/len(cap), epoch)
+-          tb_writer.add_scalar('val/target', cap[0], epoch)
+-          tb_writer.add_scalar('val/text', cap[1], epoch)
+-          tb_writer.add_scalar('box/total', totalavr, epoch)
+-          tb_writer.add_scalar('box/target', totalavrtarget, epoch)
+-          tb_writer.add_scalar('box/text', totalavrtext, epoch)
+-          tb_writer.add_scalar('box/totalap', totalap, epoch)
+-          tb_writer.add_scalar('box/totaltargetap', totaltargetap, epoch)
+-          tb_writer.add_scalar('box/totaltextap', totaltextap, epoch)
+-          tb_writer.add_scalar('box/facnt', facnt, epoch)
++            tb_writer.add_scalar('train/loss', train_loss, epoch)
++            tb_writer.add_scalar('train/regression_loss', train_regression_loss, epoch)
++            tb_writer.add_scalar('train/classification_loss', train_classification_loss, epoch)
++            tb_writer.add_scalar('val/loss', val_loss, epoch)
++            tb_writer.add_scalar('val/regression_loss', val_regression_loss, epoch)
++            tb_writer.add_scalar('val/classification_loss', val_classification_loss, epoch)
++            tb_writer.add_scalar('val/map', sum(cap) / len(cap), epoch)
++            for i in range(1, num_classes):
++                tb_writer.add_scalar(f'val/{cname[i]}', cap[i - 1], epoch)
++            tb_writer.add_scalar('box/total', total_avr, epoch)
++            for i in range(1, num_classes):
++                tb_writer.add_scalar(f'box/totalavr_{class_names[i]}', total_avr_target[i - 1], epoch)
++            tb_writer.add_scalar('box/totalap', total_ap, epoch)
++            for i in range(1, num_classes):
++                tb_writer.add_scalar(f'box/totalap_{class_names[i]}', total_target_ap[i - 1], epoch)
++            tb_writer.add_scalar('box/facnt', facnt, epoch)
+Index: vision/nn/multibox_loss.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/nn/multibox_loss.py b/vision/nn/multibox_loss.py
+--- a/vision/nn/multibox_loss.py	(revision b3c853b36fd402b6073635fd7f0183a3e2915c00)
++++ b/vision/nn/multibox_loss.py	(revision 0fceba5f593f7b5aa00c5068cc23b0be01ff359a)
+@@ -6,20 +6,22 @@
+ 
+ from ..utils import box_utils
+ 
++
+ def swap(inputBox):
+-#    x1 = inputBox[:, 0]
+-#    y1 = inputBox[:, 1]
+-#    x2 = inputBox[:, 2]
+-#    y2 = inputBox[:, 3]
++    #    x1 = inputBox[:, 0]
++    #    y1 = inputBox[:, 1]
++    #    x2 = inputBox[:, 2]
++    #    y2 = inputBox[:, 3]
+ 
+     x1 = torch.min(inputBox[:, 0], inputBox[:, 2])
+     y1 = torch.min(inputBox[:, 1], inputBox[:, 3])
+     x2 = torch.max(inputBox[:, 0], inputBox[:, 2])
+     y2 = torch.max(inputBox[:, 1], inputBox[:, 3])
+ 
+-#    return torch.stack([x1, y2, x2, y1], dim=1)
++    #    return torch.stack([x1, y2, x2, y1], dim=1)
+     return torch.stack([x1, y1, x2, y2], dim=1)
+ 
++
+ def bbox_overlaps_diou(bboxes1, bboxes2):
+     bboxes1 = swap(bboxes1)
+     bboxes2 = swap(bboxes2)
+@@ -47,23 +49,24 @@
+     center_x2 = (bboxes2[:, 2] + bboxes2[:, 0]) / 2
+     center_y2 = (bboxes2[:, 3] + bboxes2[:, 1]) / 2
+ 
+-    inter_max_xy = torch.min(bboxes1[:, 2:],bboxes2[:, 2:])
+-    inter_min_xy = torch.max(bboxes1[:, :2],bboxes2[:, :2])
+-    out_max_xy = torch.max(bboxes1[:, 2:],bboxes2[:, 2:])
+-    out_min_xy = torch.min(bboxes1[:, :2],bboxes2[:, :2])
++    inter_max_xy = torch.min(bboxes1[:, 2:], bboxes2[:, 2:])
++    inter_min_xy = torch.max(bboxes1[:, :2], bboxes2[:, :2])
++    out_max_xy = torch.max(bboxes1[:, 2:], bboxes2[:, 2:])
++    out_min_xy = torch.min(bboxes1[:, :2], bboxes2[:, :2])
+ 
+     inter = torch.clamp((inter_max_xy - inter_min_xy), min=0)
+     inter_area = inter[:, 0] * inter[:, 1]
+-    inter_diag = (center_x2 - center_x1)**2 + (center_y2 - center_y1)**2
++    inter_diag = (center_x2 - center_x1) ** 2 + (center_y2 - center_y1) ** 2
+     outer = torch.clamp((out_max_xy - out_min_xy), min=0)
+     outer_diag = (outer[:, 0] ** 2) + (outer[:, 1] ** 2)
+-    union = area1+area2-inter_area
++    union = area1 + area2 - inter_area
+     dious = inter_area / union - (inter_diag) / outer_diag
+-    dious = torch.clamp(dious,min=-1.0,max = 1.0)
++    dious = torch.clamp(dious, min=-1.0, max=1.0)
+     if exchange:
+         dious = dious.T
+     return dious
+ 
++
+ def bbox_overlaps_ciou(bboxes1, bboxes2):
+     bboxes1 = swap(bboxes1)
+     bboxes2 = swap(bboxes2)
+@@ -92,17 +95,17 @@
+     center_x2 = (bboxes2[:, 2] + bboxes2[:, 0]) / 2
+     center_y2 = (bboxes2[:, 3] + bboxes2[:, 1]) / 2
+ 
+-    inter_max_xy = torch.min(bboxes1[:, 2:],bboxes2[:, 2:])
+-    inter_min_xy = torch.max(bboxes1[:, :2],bboxes2[:, :2])
+-    out_max_xy = torch.max(bboxes1[:, 2:],bboxes2[:, 2:])
+-    out_min_xy = torch.min(bboxes1[:, :2],bboxes2[:, :2])
++    inter_max_xy = torch.min(bboxes1[:, 2:], bboxes2[:, 2:])
++    inter_min_xy = torch.max(bboxes1[:, :2], bboxes2[:, :2])
++    out_max_xy = torch.max(bboxes1[:, 2:], bboxes2[:, 2:])
++    out_min_xy = torch.min(bboxes1[:, :2], bboxes2[:, :2])
+ 
+     inter = torch.clamp((inter_max_xy - inter_min_xy), min=0)
+     inter_area = inter[:, 0] * inter[:, 1]
+-    inter_diag = (center_x2 - center_x1)**2 + (center_y2 - center_y1)**2
++    inter_diag = (center_x2 - center_x1) ** 2 + (center_y2 - center_y1) ** 2
+     outer = torch.clamp((out_max_xy - out_min_xy), min=0)
+     outer_diag = (outer[:, 0] ** 2) + (outer[:, 1] ** 2)
+-    union = area1+area2-inter_area
++    union = area1 + area2 - inter_area
+     u = (inter_diag) / outer_diag
+     iou = inter_area / union
+ 
+@@ -111,11 +114,12 @@
+         S = 1 - iou
+         alpha = v / (S + v)
+     cious = iou - (u + alpha * v)
+-    cious = torch.clamp(cious,min=-1.0,max = 1.0)
++    cious = torch.clamp(cious, min=-1.0, max=1.0)
+     if exchange:
+         cious = cious.T
+     return cious
+ 
++
+ def bbox_overlaps_iou(bboxes1, bboxes2):
+     bboxes1 = swap(bboxes1)
+     bboxes2 = swap(bboxes2)
+@@ -131,22 +135,23 @@
+         ious = torch.zeros((cols, rows))
+         exchange = True
+     area1 = (bboxes1[:, 2] - bboxes1[:, 0]) * (
+-        bboxes1[:, 3] - bboxes1[:, 1])
++            bboxes1[:, 3] - bboxes1[:, 1])
+     area2 = (bboxes2[:, 2] - bboxes2[:, 0]) * (
+-        bboxes2[:, 3] - bboxes2[:, 1])
++            bboxes2[:, 3] - bboxes2[:, 1])
+ 
+-    inter_max_xy = torch.min(bboxes1[:, 2:],bboxes2[:, 2:])
+-    inter_min_xy = torch.max(bboxes1[:, :2],bboxes2[:, :2])
++    inter_max_xy = torch.min(bboxes1[:, 2:], bboxes2[:, 2:])
++    inter_min_xy = torch.max(bboxes1[:, :2], bboxes2[:, :2])
+ 
+     inter = torch.clamp((inter_max_xy - inter_min_xy), min=0)
+     inter_area = inter[:, 0] * inter[:, 1]
+-    union = area1+area2-inter_area
++    union = area1 + area2 - inter_area
+     ious = inter_area / union
+-    ious = torch.clamp(ious,min=0,max = 1.0)
++    ious = torch.clamp(ious, min=0, max=1.0)
+     if exchange:
+         ious = ious.T
+     return ious
+ 
++
+ def bbox_overlaps_giou(bboxes1, bboxes2):
+     bboxes1 = swap(bboxes1)
+     bboxes2 = swap(bboxes2)
+@@ -162,42 +167,44 @@
+         ious = torch.zeros((cols, rows))
+         exchange = True
+     area1 = (bboxes1[:, 2] - bboxes1[:, 0]) * (
+-        bboxes1[:, 3] - bboxes1[:, 1])
++            bboxes1[:, 3] - bboxes1[:, 1])
+     area2 = (bboxes2[:, 2] - bboxes2[:, 0]) * (
+-        bboxes2[:, 3] - bboxes2[:, 1])
++            bboxes2[:, 3] - bboxes2[:, 1])
+ 
+-    inter_max_xy = torch.min(bboxes1[:, 2:],bboxes2[:, 2:])
+-    inter_min_xy = torch.max(bboxes1[:, :2],bboxes2[:, :2])
+-    out_max_xy = torch.max(bboxes1[:, 2:],bboxes2[:, 2:])
+-    out_min_xy = torch.min(bboxes1[:, :2],bboxes2[:, :2])
++    inter_max_xy = torch.min(bboxes1[:, 2:], bboxes2[:, 2:])
++    inter_min_xy = torch.max(bboxes1[:, :2], bboxes2[:, :2])
++    out_max_xy = torch.max(bboxes1[:, 2:], bboxes2[:, 2:])
++    out_min_xy = torch.min(bboxes1[:, :2], bboxes2[:, :2])
+ 
+     inter = torch.clamp((inter_max_xy - inter_min_xy), min=0)
+     inter_area = inter[:, 0] * inter[:, 1]
+     outer = torch.clamp((out_max_xy - out_min_xy), min=0)
+     outer_area = outer[:, 0] * outer[:, 1]
+-    union = area1+area2-inter_area
++    union = area1 + area2 - inter_area
+     closure = outer_area
+ 
+     ious = inter_area / union - (closure - union) / closure
+-    ious = torch.clamp(ious,min=-1.0,max = 1.0)
++    ious = torch.clamp(ious, min=-1.0, max=1.0)
+     if exchange:
+         ious = ious.T
+     return ious
+ 
++
+ class IouLoss(nn.Module):
+ 
+     def __init__(self, losstype='giou'):
+         super(IouLoss, self).__init__()
+         self.loss = losstype
++
+     def forward(self, pred, gt):
+         num = pred.shape[0]
+ 
+         if self.loss == 'iou':
+             loss = torch.sum(1.0 - bbox_overlaps_iou(pred, gt))
+         elif self.loss == 'giou':
+-            loss = torch.sum(1.0 - bbox_overlaps_giou(pred,gt))
++            loss = torch.sum(1.0 - bbox_overlaps_giou(pred, gt))
+         elif self.loss == 'diou':
+-            loss = torch.sum(1.0 - bbox_overlaps_diou(pred,gt))
++            loss = torch.sum(1.0 - bbox_overlaps_diou(pred, gt))
+         elif self.loss == 'ciou':
+             loss = torch.sum(1.0 - bbox_overlaps_ciou(pred, gt))
+         else:
+@@ -205,6 +212,7 @@
+ 
+         return loss
+ 
++
+ class MultiboxLoss(nn.Module):
+     def __init__(self, priors, iou_threshold, neg_pos_ratio,
+                  center_variance, size_variance, device, losstype='l1loss'):
+@@ -245,12 +253,14 @@
+         if self.losstype == 'l1loss':
+             smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, size_average=False)
+         else:
+-            lossfunc = IouLoss(losstype = self.losstype)
+-            convboxes1 = box_utils.convert_locations_to_boxes(predicted_locations, gt_locations, self.center_variance, self.size_variance)
++            lossfunc = IouLoss(losstype=self.losstype)
++            convboxes1 = box_utils.convert_locations_to_boxes(predicted_locations, gt_locations, self.center_variance,
++                                                              self.size_variance)
+             convboxes1 = box_utils.center_form_to_corner_form(convboxes1)
+-            convboxes2 = box_utils.convert_locations_to_boxes(gt_locations, gt_locations, self.center_variance, self.size_variance)
++            convboxes2 = box_utils.convert_locations_to_boxes(gt_locations, gt_locations, self.center_variance,
++                                                              self.size_variance)
+             convboxes2 = box_utils.center_form_to_corner_form(convboxes2)
+             smooth_l1_loss = lossfunc(convboxes1, convboxes2)
+ 
+         num_pos = gt_locations.size(0)
+-        return smooth_l1_loss/num_pos, classification_loss/num_pos
++        return smooth_l1_loss / num_pos, classification_loss / num_pos
+Index: vision/ssd/config/mobilenetv3_ssd_config_540.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv3_ssd_config_540.py b/vision/ssd/config/mobilenetv3_ssd_config_540.py
+new file mode 100644
+--- /dev/null	(revision 0fceba5f593f7b5aa00c5068cc23b0be01ff359a)
++++ b/vision/ssd/config/mobilenetv3_ssd_config_540.py	(revision 0fceba5f593f7b5aa00c5068cc23b0be01ff359a)
+@@ -0,0 +1,22 @@
++import numpy as np
++
++from vision.utils.box_utils import SSDSpec, SSDBoxSizes, generate_ssd_priors
++
++
++image_size = 540
++image_mean = np.array([127, 127, 127])  # RGB layout
++image_std = 128.0
++iou_threshold = 0.45
++center_variance = 0.1
++size_variance = 0.2
++
++specs = [
++    SSDSpec(34, 16, SSDBoxSizes(54, 107), [2, 3]),
++    SSDSpec(17, 32, SSDBoxSizes(107, 198), [2, 3]),
++    SSDSpec(9, 60, SSDBoxSizes(198, 288), [2, 3]),
++    SSDSpec(5, 108, SSDBoxSizes(288, 378), [2, 3]),
++    SSDSpec(3, 180, SSDBoxSizes(378, 468), [2, 3]),
++    SSDSpec(2, 270, SSDBoxSizes(468, 558), [2, 3])
++]
++
++priors = generate_ssd_priors(specs, image_size)
+\ No newline at end of file
+Index: vision/ssd/config/mobilenetv3_ssd_config_600.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv3_ssd_config_600.py b/vision/ssd/config/mobilenetv3_ssd_config_600.py
+new file mode 100644
+--- /dev/null	(revision 0fceba5f593f7b5aa00c5068cc23b0be01ff359a)
++++ b/vision/ssd/config/mobilenetv3_ssd_config_600.py	(revision 0fceba5f593f7b5aa00c5068cc23b0be01ff359a)
+@@ -0,0 +1,22 @@
++import numpy as np
++
++from vision.utils.box_utils import SSDSpec, SSDBoxSizes, generate_ssd_priors
++
++
++image_size = 600
++image_mean = np.array([127, 127, 127])  # RGB layout
++image_std = 128.0
++iou_threshold = 0.45
++center_variance = 0.1
++size_variance = 0.2
++
++specs = [
++    SSDSpec(38, 16, SSDBoxSizes(60, 120), [2, 3]),
++    SSDSpec(19, 32, SSDBoxSizes(120, 220), [2, 3]),
++    SSDSpec(10, 60, SSDBoxSizes(220, 320), [2, 3]),
++    SSDSpec(5, 120, SSDBoxSizes(320, 420), [2, 3]),
++    SSDSpec(3, 200, SSDBoxSizes(420, 520), [2, 3]),
++    SSDSpec(2, 300, SSDBoxSizes(520, 620), [2, 3])
++]
++
++priors = generate_ssd_priors(specs, image_size)
+\ No newline at end of file
+Index: vision/ssd/config/mobilenetv3_ssd_config_400.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv3_ssd_config_400.py b/vision/ssd/config/mobilenetv3_ssd_config_400.py
+new file mode 100644
+--- /dev/null	(revision cfc14fbecf3045d9abeeb3f2275a4401089baa7d)
++++ b/vision/ssd/config/mobilenetv3_ssd_config_400.py	(revision cfc14fbecf3045d9abeeb3f2275a4401089baa7d)
+@@ -0,0 +1,22 @@
++import numpy as np
++
++from vision.utils.box_utils import SSDSpec, SSDBoxSizes, generate_ssd_priors
++
++
++image_size = 400
++image_mean = np.array([127, 127, 127])  # RGB layout
++image_std = 128.0
++iou_threshold = 0.45
++center_variance = 0.1
++size_variance = 0.2
++
++specs = [
++    SSDSpec(25, 16, SSDBoxSizes(40, 80), [2, 3]),
++    SSDSpec(13, 32, SSDBoxSizes(80, 140), [2, 3]),
++    SSDSpec(7, 60, SSDBoxSizes(140, 218), [2, 3]),
++    SSDSpec(4, 100, SSDBoxSizes(218, 290), [2, 3]),
++    SSDSpec(2, 200, SSDBoxSizes(290, 352), [2, 3]),
++    SSDSpec(1, 400, SSDBoxSizes(352, 400), [2, 3])
++]
++
++priors = generate_ssd_priors(specs, image_size)
+\ No newline at end of file
+Index: vision/ssd/config/mobilenetv3_ssd_config_480.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv3_ssd_config_480.py b/vision/ssd/config/mobilenetv3_ssd_config_480.py
+new file mode 100644
+--- /dev/null	(revision cfc14fbecf3045d9abeeb3f2275a4401089baa7d)
++++ b/vision/ssd/config/mobilenetv3_ssd_config_480.py	(revision cfc14fbecf3045d9abeeb3f2275a4401089baa7d)
+@@ -0,0 +1,22 @@
++import numpy as np
++
++from vision.utils.box_utils import SSDSpec, SSDBoxSizes, generate_ssd_priors
++
++
++image_size = 480
++image_mean = np.array([127, 127, 127])  # RGB layout
++image_std = 128.0
++iou_threshold = 0.45
++center_variance = 0.1
++size_variance = 0.2
++
++specs = [
++    SSDSpec(30, 16, SSDBoxSizes(48, 96), [2, 3]),
++    SSDSpec(15, 32, SSDBoxSizes(96, 168), [2, 3]),
++    SSDSpec(8, 60, SSDBoxSizes(168, 260), [2, 3]),
++    SSDSpec(4, 120, SSDBoxSizes(260, 346), [2, 3]),
++    SSDSpec(2, 240, SSDBoxSizes(346, 422), [2, 3]),
++    SSDSpec(1, 480,  SSDBoxSizes(422, 480), [2, 3])
++]
++
++priors = generate_ssd_priors(specs, image_size)
+\ No newline at end of file
+Index: vision/ssd/config/mobilenetv1_ssd_config.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv1_ssd_config.py b/vision/ssd/config/mobilenetv1_ssd_config.py
+--- a/vision/ssd/config/mobilenetv1_ssd_config.py	(revision 192c09d2036c195f8d4fa4341e90f80fef403ee7)
++++ b/vision/ssd/config/mobilenetv1_ssd_config.py	(revision cfc14fbecf3045d9abeeb3f2275a4401089baa7d)
+@@ -11,12 +11,12 @@
+ size_variance = 0.2
+ 
+ specs = [
+-    SSDSpec(19, 16, SSDBoxSizes(60, 105), [2, 3]),
+-    SSDSpec(10, 32, SSDBoxSizes(105, 150), [2, 3]),
+-    SSDSpec(5, 64, SSDBoxSizes(150, 195), [2, 3]),
+-    SSDSpec(3, 100, SSDBoxSizes(195, 240), [2, 3]),
+-    SSDSpec(2, 150, SSDBoxSizes(240, 285), [2, 3]),
+-    SSDSpec(1, 300, SSDBoxSizes(285, 330), [2, 3])
++    SSDSpec(19, 16, SSDBoxSizes(30, 60), [2, 3]),
++    SSDSpec(10, 32, SSDBoxSizes(60, 105), [2, 3]),
++    SSDSpec(5, 64, SSDBoxSizes(105, 164), [2, 3]),
++    SSDSpec(3, 100, SSDBoxSizes(164, 216), [2, 3]),
++    SSDSpec(2, 150, SSDBoxSizes(216, 264), [2, 3]),
++    SSDSpec(1, 300, SSDBoxSizes(264, 300), [2, 3])
+ ]
+ 
+ 
+Index: vision/ssd/config/mobilenetv3_ssd_config_240.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv3_ssd_config_240.py b/vision/ssd/config/mobilenetv3_ssd_config_240.py
+--- a/vision/ssd/config/mobilenetv3_ssd_config_240.py	(revision 192c09d2036c195f8d4fa4341e90f80fef403ee7)
++++ b/vision/ssd/config/mobilenetv3_ssd_config_240.py	(revision cfc14fbecf3045d9abeeb3f2275a4401089baa7d)
+@@ -11,12 +11,12 @@
+ size_variance = 0.2
+ 
+ specs = [
+-    SSDSpec(15, 16, SSDBoxSizes(48, 82), [2, 3]),
+-    SSDSpec(8, 30, SSDBoxSizes(82, 115), [2, 3]),
+-    SSDSpec(4, 60, SSDBoxSizes(115, 149), [2, 3]),
+-    SSDSpec(2, 120, SSDBoxSizes(149, 182), [2, 3]),
+-    SSDSpec(1, 240, SSDBoxSizes(182, 216), [2, 3]),
+-    SSDSpec(1, 240, SSDBoxSizes(216, 240), [2, 3])
++    SSDSpec(15, 16, SSDBoxSizes(24, 48), [2, 3]),
++    SSDSpec(8, 30, SSDBoxSizes(48, 84), [2, 3]),
++    SSDSpec(4, 60, SSDBoxSizes(84, 130), [2, 3]),
++    SSDSpec(2, 120, SSDBoxSizes(130, 174), [2, 3]),
++    SSDSpec(1, 240, SSDBoxSizes(174, 212), [2, 3]),
++    SSDSpec(1, 240, SSDBoxSizes(212, 240), [2, 3])
+ ]
+ 
+ priors = generate_ssd_priors(specs, image_size)
+\ No newline at end of file
+Index: vision/ssd/config/mobilenetv3_ssd_config_360.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/vision/ssd/config/mobilenetv3_ssd_config_360.py b/vision/ssd/config/mobilenetv3_ssd_config_360.py
+new file mode 100644
+--- /dev/null	(revision 4e2d619043d6196c0350e473b82117dc36df9121)
++++ b/vision/ssd/config/mobilenetv3_ssd_config_360.py	(revision 4e2d619043d6196c0350e473b82117dc36df9121)
+@@ -0,0 +1,22 @@
++import numpy as np
++
++from vision.utils.box_utils import SSDSpec, SSDBoxSizes, generate_ssd_priors
++
++
++image_size = 360
++image_mean = np.array([127, 127, 127])  # RGB layout
++image_std = 128.0
++iou_threshold = 0.45
++center_variance = 0.1
++size_variance = 0.2
++
++specs = [
++    SSDSpec(23, 16, SSDBoxSizes(36, 72), [2, 3]),
++    SSDSpec(12, 30, SSDBoxSizes(72, 126), [2, 3]),
++    SSDSpec(6, 60, SSDBoxSizes(126, 195), [2, 3]),
++    SSDSpec(3, 120, SSDBoxSizes(195, 260), [2, 3]),
++    SSDSpec(2, 180, SSDBoxSizes(260, 318), [2, 3]),
++    SSDSpec(1, 360, SSDBoxSizes(318, 360), [2, 3])
++]
++
++priors = generate_ssd_priors(specs, image_size)
+\ No newline at end of file
